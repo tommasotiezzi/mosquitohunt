@@ -10,26 +10,37 @@ export default function AuthModal({ onClose, onAuthed, subtitle }: {
   onClose: () => void; onAuthed?: () => void; subtitle?: string;
 }) {
   const supabase = createClient();
-  const { refresh } = useAuth();
+  const { refresh, isGuest, profile } = useAuth();
+  const claiming = isGuest; // guest session -> "claim" (upgrade) instead of new signup
   const [mode, setMode] = useState<"signup" | "login">("signup");
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
-  const [uname, setUname] = useState("killer_" + Math.random().toString(36).slice(2, 6));
+  const [uname, setUname] = useState(profile?.username && !profile.username.startsWith("killer_") ? profile.username : "");
   const [agree, setAgree] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const showSignupFields = claiming || mode === "signup";
 
   const submit = async () => {
     setErr("");
     if (!email.includes("@")) return setErr("That's not an email. We need somewhere to send your case files.");
     if (pw.length < 6) return setErr("Password too short. The mosquitoes will guess it.");
-    if (mode === "signup") {
+    if (showSignupFields) {
       if (!uname.trim()) return setErr("Pick a hunter name.");
       if (!agree) return setErr("You must accept the Terms & Privacy Policy.");
     }
     setBusy(true);
     try {
-      if (mode === "signup") {
+      if (claiming) {
+        // Upgrade the anonymous (guest) user into a permanent account — keeps their kills.
+        const { error } = await supabase.auth.updateUser({ email, password: pw });
+        if (error) throw error;
+        if (profile) {
+          const { error: uErr } = await supabase.from("profiles").update({ username: uname.trim() }).eq("id", profile.id);
+          if (uErr) throw uErr;
+        }
+      } else if (mode === "signup") {
         const { error } = await supabase.auth.signUp({ email, password: pw, options: { data: { username: uname.trim() } } });
         if (error) throw error;
       } else {
@@ -43,35 +54,36 @@ export default function AuthModal({ onClose, onAuthed, subtitle }: {
     } finally { setBusy(false); }
   };
 
+  const title = claiming ? "CLAIM YOUR ACCOUNT" : mode === "signup" ? "JOIN THE HUNT" : "WELCOME BACK";
+  const cta = busy ? "..." : claiming ? "CLAIM & KEEP MY KILLS" : mode === "signup" ? "START HUNTING" : "LOG IN";
+
   return (
     <div onClick={onClose} style={overlay}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 360, background: C.surface, border: `1px solid ${C.bloodDark}`, borderRadius: 14, padding: 22 }}>
         <div style={{ textAlign: "center", marginBottom: 4 }}>
           <Skull size={26} color={C.blood} />
-          <div style={{ fontFamily: DISPLAY, fontSize: 28, marginTop: 4, color: C.bone }}>{mode === "signup" ? "JOIN THE HUNT" : "WELCOME BACK"}</div>
+          <div style={{ fontFamily: DISPLAY, fontSize: 28, marginTop: 4, color: C.bone }}>{title}</div>
           <div style={{ fontFamily: MONO, fontSize: 11, color: C.boneDim }}>{subtitle ?? "Keep score. Take revenge."}</div>
         </div>
-        {mode === "signup" && <input value={uname} onChange={(e) => setUname(e.target.value)} placeholder="hunter name" style={input} />}
+        {showSignupFields && <input value={uname} onChange={(e) => setUname(e.target.value)} placeholder="hunter name" style={input} />}
         <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email" style={input} />
         <input value={pw} onChange={(e) => setPw(e.target.value)} type="password" placeholder="password" style={input} />
-        {mode === "signup" && (
+        {showSignupFields && (
           <label style={{ display: "flex", gap: 9, alignItems: "flex-start", marginTop: 12, cursor: "pointer" }}>
             <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} style={{ marginTop: 2, accentColor: C.blood, width: 16, height: 16 }} />
             <span style={{ fontSize: 12, color: C.boneDim, lineHeight: 1.45 }}>
-              I agree to the{" "}
-              <Link href="/terms" target="_blank" style={{ color: C.blood }}>Terms</Link>{" & "}
-              <Link href="/privacy" target="_blank" style={{ color: C.blood }}>Privacy Policy</Link>.
-              I confirm I am only hunting mosquitoes.
+              I agree to the <Link href="/terms" target="_blank" style={{ color: C.blood }}>Terms</Link>{" & "}
+              <Link href="/privacy" target="_blank" style={{ color: C.blood }}>Privacy Policy</Link>. I confirm I am only hunting mosquitoes.
             </span>
           </label>
         )}
         {err && <div style={{ fontFamily: MONO, fontSize: 11, color: C.blood, marginTop: 10 }}>{err}</div>}
-        <button onClick={submit} disabled={busy} style={{ ...btnPrimary, width: "100%", padding: 13, marginTop: 14, fontSize: 14, opacity: busy ? 0.6 : 1 }}>
-          {busy ? "..." : mode === "signup" ? "CONFIRM & POST" : "LOG IN"}
-        </button>
-        <div onClick={() => setMode(mode === "signup" ? "login" : "signup")} style={{ textAlign: "center", marginTop: 12, fontFamily: MONO, fontSize: 11, color: C.boneDim, cursor: "pointer" }}>
-          {mode === "signup" ? "Already hunting? Log in" : "New here? Join the hunt"}
-        </div>
+        <button onClick={submit} disabled={busy} style={{ ...btnPrimary, width: "100%", padding: 13, marginTop: 14, fontSize: 14, opacity: busy ? 0.6 : 1 }}>{cta}</button>
+        {!claiming && (
+          <div onClick={() => setMode(mode === "signup" ? "login" : "signup")} style={{ textAlign: "center", marginTop: 12, fontFamily: MONO, fontSize: 11, color: C.boneDim, cursor: "pointer" }}>
+            {mode === "signup" ? "Already hunting? Log in" : "New here? Join the hunt"}
+          </div>
+        )}
       </div>
     </div>
   );

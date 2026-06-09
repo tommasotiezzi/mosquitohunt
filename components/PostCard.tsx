@@ -15,8 +15,8 @@ const menuItem: React.CSSProperties = {
   background: "none", border: "none", color: C.bone, fontFamily: MONO, fontSize: 12, cursor: "pointer",
 };
 
-export default function PostCard({ post, onRequireAuth, onShareDossier, defaultOpen = false }: {
-  post: FeedPost; onRequireAuth: () => void; onShareDossier?: (uid: string, username: string) => void; defaultOpen?: boolean;
+export default function PostCard({ post, onRequireAuth, onShareDossier, defaultOpen = false, mine = false }: {
+  post: FeedPost; onRequireAuth: () => void; onShareDossier?: (uid: string, username: string) => void; defaultOpen?: boolean; mine?: boolean;
 }) {
   const supabase = createClient();
   const router = useRouter();
@@ -70,32 +70,17 @@ export default function PostCard({ post, onRequireAuth, onShareDossier, defaultO
     setDraft("");
   };
 
-  // Record the share without blocking the native sheet (fire-and-forget).
   const logShare = () => { supabase.from("shares").insert({ post_id: post.id, user_id: profile?.id ?? null }).then(() => {}); };
 
   const share = async () => {
-    // Dossier share (on profiles) keeps its custom behavior.
     if (onShareDossier) return onShareDossier(post.author_id, post.author_username);
-
     const url = permalink();
     const text = post.body ? `${post.body} — @${post.author_username} on MosquitoHunt` : `A confirmed kill by @${post.author_username} on MosquitoHunt`;
-
-    // Native share sheet (iOS / Android / Safari). Must be called from the tap,
-    // so we DON'T await anything before it.
     if (typeof navigator !== "undefined" && navigator.share) {
-      try {
-        await navigator.share({ title: "MosquitoHunt", text, url });
-        logShare();
-      } catch (e: any) {
-        // User cancelled the sheet -> do nothing. Other errors -> fall back to copy.
-        if (e?.name !== "AbortError") {
-          try { await navigator.clipboard.writeText(url); toast("Link copied. 🩸"); logShare(); } catch {}
-        }
-      }
+      try { await navigator.share({ title: "MosquitoHunt", text, url }); logShare(); }
+      catch (e: any) { if (e?.name !== "AbortError") { try { await navigator.clipboard.writeText(url); toast("Link copied. 🩸"); logShare(); } catch {} } }
       return;
     }
-
-    // Desktop / unsupported: copy the link.
     try { await navigator.clipboard.writeText(url); toast("Link copied. 🩸"); logShare(); }
     catch { toast("Couldn't share."); }
   };
@@ -115,7 +100,7 @@ export default function PostCard({ post, onRequireAuth, onShareDossier, defaultO
   };
 
   return (
-    <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.line}` }}>
+    <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.line}`, background: mine ? "rgba(62,8,16,.18)" : "transparent" }}>
       <div style={{ display: "flex", gap: 10 }}>
         <Link href={`/profile/${post.author_username}`} style={{ width: 38, height: 38, borderRadius: 4, background: avatarColor(post.author_username), display: "grid", placeItems: "center", fontFamily: DISPLAY, fontSize: 18, color: "#fff", flexShrink: 0, textDecoration: "none" }}>
           {post.author_username[0]?.toUpperCase()}
@@ -123,6 +108,7 @@ export default function PostCard({ post, onRequireAuth, onShareDossier, defaultO
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Link href={`/profile/${post.author_username}`} style={{ fontWeight: 700, fontSize: 14, color: C.bone, textDecoration: "none" }}>@{post.author_username}</Link>
+            {mine && <span style={{ fontFamily: MONO, fontSize: 9, fontWeight: 700, letterSpacing: ".5px", color: "#fff", background: C.blood, padding: "1px 5px", borderRadius: 3 }}>YOU</span>}
             <Link href={`/post/${post.id}`} style={{ fontFamily: MONO, fontSize: 11, color: C.boneFaint, textDecoration: "none" }}>{ago(post.created_at)}</Link>
           </div>
 
