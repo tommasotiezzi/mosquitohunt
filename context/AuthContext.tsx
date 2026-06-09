@@ -5,12 +5,17 @@ import type { Profile } from "@/lib/types";
 
 interface AuthState {
   profile: Profile | null;
-  isGuest: boolean;            // true = anonymous (guest) session
+  isGuest: boolean;
   loading: boolean;
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
+  // Returns a usable session id, creating a guest (anonymous) one if needed.
+  ensureSession: () => Promise<{ id: string; guest: boolean } | null>;
 }
-const Ctx = createContext<AuthState>({ profile: null, isGuest: false, loading: true, refresh: async () => {}, signOut: async () => {} });
+const Ctx = createContext<AuthState>({
+  profile: null, isGuest: false, loading: true,
+  refresh: async () => {}, signOut: async () => {}, ensureSession: async () => null,
+});
 export const useAuth = () => useContext(Ctx);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -34,6 +39,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, [load, supabase]);
 
+  const ensureSession = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) return { id: user.id, guest: Boolean((user as any).is_anonymous) };
+    const { data, error } = await supabase.auth.signInAnonymously();
+    if (error || !data.user) return null; // anonymous sign-ins disabled in dashboard
+    await load();
+    return { id: data.user.id, guest: true };
+  }, [supabase, load]);
+
   const signOut = async () => { await supabase.auth.signOut(); setProfile(null); setIsGuest(false); };
-  return <Ctx.Provider value={{ profile, isGuest, loading, refresh: load, signOut }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ profile, isGuest, loading, refresh: load, signOut, ensureSession }}>{children}</Ctx.Provider>;
 }

@@ -15,12 +15,43 @@ const menuItem: React.CSSProperties = {
   background: "none", border: "none", color: C.bone, fontFamily: MONO, fontSize: 12, cursor: "pointer",
 };
 
+// Squashed mosquito on a blood splatter — the signature "kill confirmed" mark.
+const KillSplat = ({ size = 50 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+    <g fill={C.blood}>
+      <circle cx="32" cy="33" r="15" />
+      <circle cx="20" cy="26" r="7" />
+      <circle cx="45" cy="24" r="6" />
+      <circle cx="46" cy="42" r="8" />
+      <circle cx="22" cy="44" r="6" />
+      <circle cx="12" cy="18" r="2.4" /><circle cx="54" cy="14" r="2" /><circle cx="57" cy="33" r="1.8" />
+      <circle cx="9" cy="36" r="1.6" /><circle cx="16" cy="54" r="2.6" /><circle cx="50" cy="53" r="2" /><circle cx="36" cy="57" r="1.5" />
+    </g>
+    <g fill={C.bloodDeep} opacity="0.5">
+      <circle cx="30" cy="35" r="9" /><circle cx="41" cy="30" r="4" />
+    </g>
+    <g stroke="#160305" strokeWidth="1.6" strokeLinecap="round" fill="none">
+      <path d="M30 30 L20 22" /><path d="M30 32 L18 30" /><path d="M30 34 L21 40" />
+      <path d="M37 30 L47 23" /><path d="M37 32 L49 31" /><path d="M37 34 L46 41" />
+    </g>
+    <g fill="#160305">
+      <ellipse cx="34" cy="33" rx="7" ry="2.6" transform="rotate(12 34 33)" />
+      <circle cx="27" cy="31" r="2.3" />
+    </g>
+    <path d="M25 30 L19 27" stroke="#160305" strokeWidth="1.4" strokeLinecap="round" />
+    <g fill={C.bone} opacity="0.45">
+      <ellipse cx="36" cy="28" rx="6" ry="2.4" transform="rotate(-28 36 28)" />
+      <ellipse cx="39" cy="36" rx="5.5" ry="2.2" transform="rotate(28 39 36)" />
+    </g>
+  </svg>
+);
+
 export default function PostCard({ post, onRequireAuth, onShareDossier, defaultOpen = false, mine = false }: {
   post: FeedPost; onRequireAuth: () => void; onShareDossier?: (uid: string, username: string) => void; defaultOpen?: boolean; mine?: boolean;
 }) {
   const supabase = createClient();
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile, isGuest, ensureSession } = useAuth();
   const toast = useToast();
   const [saluted, setSaluted] = useState(false);
   const [salutes, setSalutes] = useState(post.salute_count);
@@ -35,6 +66,9 @@ export default function PostCard({ post, onRequireAuth, onShareDossier, defaultO
   const bodyCursor = linkToPost ? "pointer" : "default";
   const permalink = () => `${window.location.origin}/post/${post.id}`;
 
+  const isKill = post.type === "kill";
+  const note = post.body && post.body !== "Confirmed a kill." ? post.body : null; // user's own commentary, if any
+
   const fetchComments = async () => {
     if (loaded) return;
     const { data } = await supabase
@@ -47,11 +81,12 @@ export default function PostCard({ post, onRequireAuth, onShareDossier, defaultO
   useEffect(() => { if (defaultOpen) fetchComments(); /* eslint-disable-next-line */ }, [defaultOpen]);
 
   const toggleSalute = async () => {
-    if (!profile) return onRequireAuth();
+    const sess = profile ? { id: profile.id } : await ensureSession();
+    if (!sess) return onRequireAuth();
     const next = !saluted;
     setSaluted(next); setSalutes((n) => n + (next ? 1 : -1));
-    if (next) await supabase.from("reactions").insert({ post_id: post.id, user_id: profile.id });
-    else await supabase.from("reactions").delete().eq("post_id", post.id).eq("user_id", profile.id);
+    if (next) await supabase.from("reactions").insert({ post_id: post.id, user_id: sess.id });
+    else await supabase.from("reactions").delete().eq("post_id", post.id).eq("user_id", sess.id);
   };
 
   const toggleComments = async () => {
@@ -62,7 +97,7 @@ export default function PostCard({ post, onRequireAuth, onShareDossier, defaultO
   };
 
   const addComment = async () => {
-    if (!profile) return onRequireAuth();
+    if (!profile || isGuest) return onRequireAuth();
     if (!draft.trim()) return;
     const { data } = await supabase.from("comments")
       .insert({ post_id: post.id, author_id: profile.id, body: draft.trim() }).select("id, body, created_at").single();
@@ -99,6 +134,8 @@ export default function PostCard({ post, onRequireAuth, onShareDossier, defaultO
     else toast("Reported. We'll take a look.");
   };
 
+  const commentLocked = !profile || isGuest;
+
   return (
     <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.line}`, background: mine ? "rgba(62,8,16,.18)" : "transparent" }}>
       <div style={{ display: "flex", gap: 10 }}>
@@ -112,17 +149,42 @@ export default function PostCard({ post, onRequireAuth, onShareDossier, defaultO
             <Link href={`/post/${post.id}`} style={{ fontFamily: MONO, fontSize: 11, color: C.boneFaint, textDecoration: "none" }}>{ago(post.created_at)}</Link>
           </div>
 
-          {post.type !== "text" && (
-            <div onClick={openPost} style={{ cursor: bodyCursor, fontFamily: MONO, fontSize: 10, letterSpacing: "1px", color: C.blood, marginTop: 2 }}>
-              ◢ CONFIRMED KILL{post.kill_count > 1 ? ` ×${post.kill_count}` : ""} · CASE #{post.id.slice(-4).toUpperCase()}
+          {isKill && !note ? (
+            // ── BARE KILL CONFIRMATION (no commentary) — distinct evidence card ──
+            <div onClick={openPost} style={{ cursor: bodyCursor, marginTop: 8, display: "flex", alignItems: "center", gap: 12, background: "rgba(209,26,42,.07)", border: "1px solid rgba(209,26,42,.32)", borderRadius: 10, padding: "10px 14px" }}>
+              <KillSplat size={50} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: DISPLAY, fontSize: 21, lineHeight: 1, color: C.blood, letterSpacing: ".5px" }}>
+                  CONFIRMED KILL{post.kill_count > 1 ? ` ×${post.kill_count}` : ""}
+                </div>
+                <div style={{ fontFamily: MONO, fontSize: 9.5, color: C.boneDim, marginTop: 5, letterSpacing: "1px" }}>
+                  CASE #{post.id.slice(-4).toUpperCase()} · STATUS: TERMINATED
+                </div>
+              </div>
             </div>
-          )}
-          {post.body && <div onClick={openPost} style={{ cursor: bodyCursor, fontSize: 14.5, lineHeight: 1.5, marginTop: 6, color: C.bone, wordBreak: "break-word" }}>{post.body}</div>}
-          {post.type === "snap" && (
-            <div onClick={openPost} style={{ cursor: bodyCursor, marginTop: 10, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.line}`, background: "#000", position: "relative" }}>
-              {post.image_url ? <img src={post.image_url} alt="" style={{ width: "100%", display: "block", maxHeight: 320, objectFit: "cover" }} />
-                : <div style={{ height: 150, display: "grid", placeItems: "center", background: `radial-gradient(circle at 50% 40%, ${C.bloodDeep}, #000)` }}><Droplet size={40} color={C.blood} /></div>}
-            </div>
+          ) : isKill ? (
+            // ── KILL WITH COMMENTARY — normal post look, small case label ──
+            <>
+              <div onClick={openPost} style={{ cursor: bodyCursor, fontFamily: MONO, fontSize: 10, letterSpacing: "1px", color: C.blood, marginTop: 2 }}>
+                ◢ CONFIRMED KILL{post.kill_count > 1 ? ` ×${post.kill_count}` : ""} · CASE #{post.id.slice(-4).toUpperCase()}
+              </div>
+              <div onClick={openPost} style={{ cursor: bodyCursor, fontSize: 14.5, lineHeight: 1.5, marginTop: 6, color: C.bone, wordBreak: "break-word" }}>{note}</div>
+            </>
+          ) : post.type === "snap" ? (
+            // ── PHOTO EVIDENCE ──
+            <>
+              <div onClick={openPost} style={{ cursor: bodyCursor, fontFamily: MONO, fontSize: 10, letterSpacing: "1px", color: C.blood, marginTop: 2 }}>
+                ◢ EVIDENCE FILED · CASE #{post.id.slice(-4).toUpperCase()}
+              </div>
+              {post.body && <div onClick={openPost} style={{ cursor: bodyCursor, fontSize: 14.5, lineHeight: 1.5, marginTop: 6, color: C.bone, wordBreak: "break-word" }}>{post.body}</div>}
+              <div onClick={openPost} style={{ cursor: bodyCursor, marginTop: 10, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.line}`, background: "#000" }}>
+                {post.image_url ? <img src={post.image_url} alt="" style={{ width: "100%", display: "block", maxHeight: 320, objectFit: "cover" }} />
+                  : <div style={{ height: 150, display: "grid", placeItems: "center", background: `radial-gradient(circle at 50% 40%, ${C.bloodDeep}, #000)` }}><Droplet size={40} color={C.blood} /></div>}
+              </div>
+            </>
+          ) : (
+            // ── PLAIN TEXT ──
+            post.body && <div onClick={openPost} style={{ cursor: bodyCursor, fontSize: 14.5, lineHeight: 1.5, marginTop: 6, color: C.bone, wordBreak: "break-word" }}>{post.body}</div>
           )}
 
           <div style={{ display: "flex", gap: 22, marginTop: 12, alignItems: "center" }}>
@@ -158,11 +220,15 @@ export default function PostCard({ post, onRequireAuth, onShareDossier, defaultO
                   <span style={{ fontSize: 13, color: C.bone }}>{cm.body}</span>
                 </div>
               ))}
-              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Add to the record…"
-                  style={{ flex: 1, background: C.raised, border: `1px solid ${C.line}`, borderRadius: 6, padding: "7px 10px", color: C.bone, fontSize: 13, outline: "none" }} />
-                <button onClick={addComment} style={btnSm}>POST</button>
-              </div>
+              {commentLocked ? (
+                <button onClick={onRequireAuth} style={{ ...btnSm, width: "100%", padding: "9px 10px", marginTop: 4 }}>🔒 SIGN UP TO COMMENT</button>
+              ) : (
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Add to the record…"
+                    style={{ flex: 1, background: C.raised, border: `1px solid ${C.line}`, borderRadius: 6, padding: "7px 10px", color: C.bone, fontSize: 13, outline: "none" }} />
+                  <button onClick={addComment} style={btnSm}>POST</button>
+                </div>
+              )}
             </div>
           )}
         </div>
