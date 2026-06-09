@@ -1,0 +1,16 @@
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+html, body { background: #0C0A0A; color: #EDE6DC; }
+body { font-family: var(--font-body), -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; }
+::-webkit-scrollbar { width: 0; }
+button:active { transform: scale(0.98); }
+a { color: inherit; }
+
+/* On wide screens, sit the phone-width column on a darker backdrop so it
+   reads as an intentional frame instead of a stranded strip. */
+@media (min-width: 520px) {
+  body {
+    background:
+      radial-gradient(900px 600px at 50% -10%, #1a0d0e 0%, transparent 60%),
+      #060505;
+  }
+}
